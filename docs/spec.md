@@ -22,6 +22,8 @@ will use `name` to choose the destination.
 | `env`        | map[string]string   | no                            | `${VAR}` expansion from env-file or process env. |
 | `env_file`   | string              | no                            | Per-routine env-file override. |
 | `enabled`    | bool                | no                            | Default `true`. |
+| `once`       | bool                | no                            | Fire once, then delete the spec file. |
+| `worktree`   | object              | no                            | Run each fire inside a fresh git worktree. See below. |
 
 ## Schedule grammar
 
@@ -49,6 +51,47 @@ silently substitute.
   the value in `~/.routines/env`.
 - The validator emits a heuristic warning when a key name contains
   KEY/TOKEN/SECRET/PASSWORD/API and the value is long opaque.
+
+## Worktree mode
+
+When `worktree:` is present, the daemon creates a fresh `git worktree`
+at the start of every fire, runs the routine inside it, and removes
+the worktree (and its branch) when the routine exits. Each fire
+therefore gets an isolated copy of the repo — concurrent runs and
+runs that mutate files cannot stomp each other.
+
+| Sub-field        | Notes |
+|------------------|-------|
+| `branch_prefix`  | Prepended to the auto-generated branch name. Default `routines/`. |
+| `path`           | Worktree directory, relative to repo root. Default `.worktrees/<routine-name>-<run-id>`. |
+| `post_create`    | Optional shell command run inside the worktree before the agent fires (e.g. `npm install`, `cargo build`). |
+
+Example:
+
+```yaml
+name: refactor-bot
+agent: claude
+schedule: "every 1h"
+workdir: ~/repos/foo
+worktree:
+  post_create: "npm ci"
+prompt: |
+  Look for cleanup opportunities. Open a PR if you find any.
+```
+
+## One-shot routines
+
+Setting `once: true` makes the routine fire one time and removes the
+spec file after a successful run. Useful for deferred work (`run this
+once at 3pm and forget`).
+
+```yaml
+name: at-3pm
+agent: shell
+schedule: "0 15 * * *"
+once: true
+command: ["bash", "-lc", "/usr/local/bin/some-batch-job"]
+```
 
 ## Example
 

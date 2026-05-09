@@ -5,7 +5,10 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	stdlog "log"
+	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"time"
@@ -17,6 +20,7 @@ import (
 	"github.com/ElodinLaarz/agent-routines/internal/notify"
 	"github.com/ElodinLaarz/agent-routines/internal/spec"
 	"github.com/ElodinLaarz/agent-routines/internal/store"
+	"github.com/ElodinLaarz/agent-routines/internal/worktree"
 )
 
 // Config wires the scheduler to its collaborators.
@@ -35,10 +39,13 @@ type Scheduler struct {
 	cfg Config
 	c   *cron.Cron
 
-	mu       sync.Mutex
-	jobs     map[string]cron.EntryID // routine name -> cron entry id
-	locks    map[string]*sync.Mutex  // routine name -> per-routine lock
-	inflight map[string]int          // routine name -> running count
+	mu    sync.Mutex
+	jobs  map[string]cron.EntryID // routine name -> cron entry id
+	locks map[string]*sync.Mutex  // routine name -> per-routine lock
+
+	// runCtx is canceled by Stop so adapter executions can unwind quickly.
+	runCtx    context.Context
+	runCancel context.CancelFunc
 
 	// inFlightWg tracks goroutines fired by jobs so Stop can wait.
 	inFlightWg sync.WaitGroup
@@ -49,12 +56,14 @@ func New(cfg Config) *Scheduler {
 	if cfg.GracePeriod == 0 {
 		cfg.GracePeriod = 30 * time.Second
 	}
+	ctx, cancel := context.WithCancel(context.Background())
 	return &Scheduler{
-		cfg:      cfg,
-		c:        cron.New(cron.WithSeconds()),
-		jobs:     map[string]cron.EntryID{},
-		locks:    map[string]*sync.Mutex{},
-		inflight: map[string]int{},
+		cfg:       cfg,
+		c:         cron.New(cron.WithSeconds()),
+		jobs:      map[string]cron.EntryID{},
+		locks:     map[string]*sync.Mutex{},
+		runCtx:    ctx,
+		runCancel: cancel,
 	}
 }
 
@@ -64,6 +73,10 @@ func (s *Scheduler) Start() { s.c.Start() }
 // Stop signals the cron loop to halt and waits up to GracePeriod for any
 // in-flight runs to finish. Returns when in-flight goroutines complete OR
 // the grace period elapses, whichever comes first.
+//
+// On grace expiry, runCtx is canceled — adapters that honor ctx (the shared
+// runCmd helper does) will receive cancellation and unwind their child
+// process trees immediately.
 func (s *Scheduler) Stop() {
 	// cron's Stop returns a ctx that closes when current entries complete.
 	// We don't block on it — the WaitGroup is the source of truth and the
@@ -79,7 +92,16 @@ func (s *Scheduler) Stop() {
 	select {
 	case <-done:
 	case <-time.After(s.cfg.GracePeriod):
+		// Grace expired with runs still in flight — cancel their ctx so
+		// adapter calls return promptly. Then wait briefly for them to
+		// observe the cancellation and exit.
+		s.runCancel()
+		select {
+		case <-done:
+		case <-time.After(2 * time.Second):
+		}
 	}
+	s.runCancel()
 }
 
 // AddOrReplace registers (or updates) a routine. Returns nil if the
@@ -123,7 +145,7 @@ func (s *Scheduler) AddOrReplace(r *spec.Routine) error {
 	return nil
 }
 
-// Remove unregisters a routine.
+// Remove unregisters a routine and drops its per-routine lock.
 func (s *Scheduler) Remove(name string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -131,6 +153,7 @@ func (s *Scheduler) Remove(name string) {
 		s.c.Remove(id)
 		delete(s.jobs, name)
 	}
+	delete(s.locks, name)
 }
 
 // NextFire returns the next scheduled fire time for a routine, or zero
@@ -204,7 +227,14 @@ func (s *Scheduler) runOnce(r *spec.Routine) {
 			backoff = 30 * time.Second
 		}
 		for i := 0; i < r.Retries; i++ {
-			time.Sleep(backoff)
+			// ctx-aware sleep so shutdown unwinds promptly mid-backoff.
+			t := time.NewTimer(backoff)
+			select {
+			case <-t.C:
+			case <-s.runCtx.Done():
+				t.Stop()
+				return
+			}
 			stdlog.Printf("[%s] retry %d/%d (last exit=%d err=%v)",
 				r.Name, i+1, r.Retries, res.exit, res.runErr)
 			res = s.executeOnce(r)
@@ -218,6 +248,17 @@ func (s *Scheduler) runOnce(r *spec.Routine) {
 
 	if s.cfg.KeepLastN > 0 || s.cfg.MaxLogAge > 0 {
 		_, _ = pkglog.Prune(s.cfg.LogDir, r.Name, s.cfg.KeepLastN, s.cfg.MaxLogAge)
+	}
+
+	// One-shot routines self-destruct after a successful fire. The
+	// fsstore watcher will pick up the file removal and call Remove,
+	// so we do not have to unregister from cron here.
+	if r.Once && res.status == notify.StatusSuccess && r.SourcePath != "" {
+		if err := os.Remove(r.SourcePath); err != nil {
+			stdlog.Printf("[%s] one-shot cleanup failed: %v", r.Name, err)
+		} else {
+			stdlog.Printf("[%s] one-shot complete; removed %s", r.Name, r.SourcePath)
+		}
 	}
 }
 
@@ -248,11 +289,28 @@ func (s *Scheduler) executeOnce(r *spec.Routine) runResult {
 	if aerr != nil {
 		res.exit, res.runErr, res.status = -1, aerr, notify.StatusFailed
 	} else {
-		ctx, cancel := context.WithCancel(context.Background())
+		// Derived from the scheduler's runCtx so Stop()'s cancel propagates
+		// down into the running adapter child process.
+		ctx, cancel := context.WithCancel(s.runCtx)
 		defer cancel()
+
+		// Optional per-fire git worktree: each run gets a fresh checkout
+		// so concurrent or stateful routines do not stomp each other.
+		workdir := r.Workdir
+		if r.Worktree != nil {
+			result, werr := setupWorktree(ctx, r, startedAt, w)
+			if werr != nil {
+				res.exit, res.runErr, res.status = -1, werr, notify.StatusFailed
+				cancel()
+				return finalize(s, w, runID, res, startedAt)
+			}
+			workdir = result.Path
+			defer func() { _ = result.Cleanup() }()
+		}
+
 		req := adapter.Request{
 			Prompt:  r.Prompt,
-			Workdir: r.Workdir,
+			Workdir: workdir,
 			Env:     r.Env,
 			Timeout: r.Timeout,
 			Stdout:  w,
@@ -276,17 +334,49 @@ func (s *Scheduler) executeOnce(r *spec.Routine) runResult {
 	if dur == 0 {
 		res.finished = time.Now()
 	}
+	return finalize(s, w, runID, res, startedAt)
+}
 
+// finalize writes the trailer line, closes the log, and persists history.
+// Used by both the happy path and early-return failure paths.
+func finalize(s *Scheduler, w *pkglog.Writer, runID int64, res runResult, startedAt time.Time) runResult {
+	if res.finished.IsZero() {
+		res.finished = time.Now()
+	}
 	if w != nil {
 		_, _ = fmt.Fprintf(w, "=== finished status=%s exit=%d duration=%s ===\n",
 			res.status, res.exit, res.finished.Sub(startedAt))
 		_ = w.Close()
 	}
-
 	if s.cfg.History != nil && runID > 0 {
 		_ = s.cfg.History.Finish(runID, res.status, res.exit, res.runErr)
 	}
 	return res
+}
+
+// setupWorktree creates the per-fire git worktree according to r.Worktree.
+func setupWorktree(ctx context.Context, r *spec.Routine, startedAt time.Time, w io.Writer) (*worktree.Result, error) {
+	if r.Workdir == "" {
+		return nil, fmt.Errorf("worktree mode requires `workdir:` to point at a git repo")
+	}
+	wt := r.Worktree
+	runID := startedAt.UTC().Format("20060102T150405Z")
+	path := wt.Path
+	if path == "" {
+		path = filepath.Join(".worktrees", r.Name+"-"+runID)
+	}
+	prefix := wt.BranchPrefix
+	if prefix == "" {
+		prefix = "routines/"
+	}
+	branch := prefix + r.Name + "-" + runID
+	return worktree.Create(ctx, worktree.Setup{
+		RepoRoot:   r.Workdir,
+		BranchName: branch,
+		Path:       path,
+		PostCreate: wt.PostCreate,
+		W:          w,
+	})
 }
 
 // maybeNotify fires the configured notifier when the run failed, or when
@@ -320,7 +410,7 @@ func (s *Scheduler) maybeNotify(r *spec.Routine, res runResult) {
 	if res.runErr != nil {
 		evt.Error = res.runErr.Error()
 	}
-	_ = n.Notify(context.Background(), evt)
+	_ = n.Notify(s.runCtx, evt)
 }
 
 // filterNotifierByOutputs picks a sub-notifier from a Multi based on the

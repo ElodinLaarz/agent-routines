@@ -64,9 +64,11 @@ func copyFile(src, dst string) error {
 	if err != nil {
 		return err
 	}
-	defer out.Close()
 	if _, err := io.Copy(out, in); err != nil {
+		_ = out.Close()
 		return err
 	}
-	return nil
+	// Surface Close errors so a flush failure (disk full, quota, etc.)
+	// doesn't silently produce a truncated spec file.
+	return out.Close()
 }

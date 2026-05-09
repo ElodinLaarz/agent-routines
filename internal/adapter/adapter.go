@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"os/exec"
+	"strings"
 	"time"
 )
 
@@ -58,7 +59,7 @@ func runCmd(ctx context.Context, cmd *exec.Cmd, r Request, stdin string) (Result
 	cmd.Stdout = r.Stdout
 	cmd.Stderr = r.Stderr
 	if stdin != "" {
-		cmd.Stdin = stringReader(stdin)
+		cmd.Stdin = strings.NewReader(stdin)
 	}
 	cmd.Env = mergeEnv(r.Env)
 	setNewProcessGroup(cmd)
@@ -96,22 +97,6 @@ func runCmd(ctx context.Context, cmd *exec.Cmd, r Request, stdin string) (Result
 		}
 		return Result{ExitCode: -1, Duration: dur}, err
 	}
-}
-
-func stringReader(s string) io.Reader { return &strReader{s: s} }
-
-type strReader struct {
-	s string
-	i int
-}
-
-func (r *strReader) Read(p []byte) (int, error) {
-	if r.i >= len(r.s) {
-		return 0, io.EOF
-	}
-	n := copy(p, r.s[r.i:])
-	r.i += n
-	return n, nil
 }
 
 // mergeEnv returns the process environment overlaid with `custom`, with

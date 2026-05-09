@@ -20,8 +20,30 @@ type Routine struct {
 	EnvFile    string            `yaml:"env_file,omitempty"`
 	Enabled    *bool             `yaml:"enabled,omitempty"`
 
+	// Once, when true, fires the routine a single time after which the
+	// spec file is deleted. Useful for ad-hoc scheduled jobs ("at 3pm").
+	Once bool `yaml:"once,omitempty"`
+
+	// Worktree, when set, runs each fire inside a fresh git worktree
+	// derived from Workdir (which must point at a git repo). The
+	// worktree is removed after the run.
+	Worktree *WorktreeSpec `yaml:"worktree,omitempty"`
+
 	// SourcePath is the file the routine was loaded from (set by store).
 	SourcePath string `yaml:"-"`
+}
+
+// WorktreeSpec controls per-fire git-worktree creation.
+type WorktreeSpec struct {
+	// BranchPrefix is prepended to the auto-generated branch name.
+	// Defaults to "routines/".
+	BranchPrefix string `yaml:"branch_prefix,omitempty"`
+	// Path is where the worktree is created, relative to the repo root.
+	// Defaults to ".worktrees/<run-id>".
+	Path string `yaml:"path,omitempty"`
+	// PostCreate is an optional shell command to run inside the new
+	// worktree before the agent fires (`npm install`, `cargo build`, ...).
+	PostCreate string `yaml:"post_create,omitempty"`
 }
 
 // Output is one notifier/sink reference for a routine.

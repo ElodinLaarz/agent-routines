@@ -1,0 +1,12 @@
+name: refactor-bot
+agent: claude
+schedule: "every 1h"
+workdir: ~/repos/foo
+worktree:
+  post_create: "npm ci"
+prompt: |
+  Look for cleanup opportunities in this repo. Open a PR if you find
+  something worth merging; otherwise exit silently.
+timeout: 30m
+env:
+  ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY}
