@@ -1,0 +1,14 @@
+[Unit]
+Description=agent-routines daemon
+After=network-online.target
+
+[Service]
+# Replace this path with the absolute location of `routines`.
+ExecStart=%h/.local/bin/routines daemon
+Restart=on-failure
+RestartSec=5
+# EnvironmentFile is optional. Place secrets here, not in routine YAML.
+# EnvironmentFile=%h/.routines/env
+
+[Install]
+WantedBy=default.target

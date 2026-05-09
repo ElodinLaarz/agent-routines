@@ -1,0 +1,8 @@
+name: dependency-check
+agent: shell
+schedule: "daily 03:00"
+workdir: ~/repos/foo
+command: ["bash", "-lc", "go list -m -u all 2>/dev/null | grep -E '\\[' || true; npm outdated --depth=0 2>/dev/null || true"]
+timeout: 5m
+outputs:
+  - log: "~/.routines/logs/dependency-check/{date}.log"

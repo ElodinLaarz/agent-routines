@@ -1,0 +1,14 @@
+name: repo-health
+agent: gemini
+schedule: hourly
+workdir: ~/repos/foo
+prompt: |
+  Check this repo for: failing CI on default branch, stale PRs (>14 days
+  since last activity), and security advisories. Output as markdown
+  bullets, one per finding. If nothing found, print "all clear".
+timeout: 8m
+on_failure: retry
+retries: 2
+backoff: 2m
+env:
+  GEMINI_API_KEY: ${GEMINI_API_KEY}

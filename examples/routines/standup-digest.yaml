@@ -1,0 +1,13 @@
+name: standup-digest
+agent: claude
+schedule: "daily 08:55"
+workdir: ~/repos/foo
+prompt: |
+  Read yesterday's commits across this repo. Produce a 3-line standup
+  summary suitable for #eng-standup. Focus on changes that affect API
+  contracts. Skip dependency bumps.
+timeout: 5m
+outputs:
+  - notifier: slack
+env:
+  ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY}
