@@ -30,7 +30,14 @@ import time
 import uuid
 from contextlib import contextmanager, suppress
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import datetime
+
+try:
+    from datetime import UTC
+except ImportError:  # Python < 3.11
+    from datetime import timezone
+
+    UTC = timezone.utc
 from pathlib import Path
 
 import yaml
@@ -101,8 +108,15 @@ def load_config(path: Path) -> Config:
     if not harnesses:
         raise ValueError("config has no 'harnesses' defined")
 
+    required = ("name", "interval", "harness", "repo", "prompt_template")
     routines: list[Routine] = []
-    for r in raw.get("routines") or []:
+    for idx, r in enumerate(raw.get("routines") or []):
+        if not isinstance(r, dict):
+            raise ValueError(f"routine #{idx} is not a mapping: {r!r}")
+        missing = [k for k in required if k not in r]
+        if missing:
+            label = r.get("name", f"#{idx}")
+            raise ValueError(f"routine {label!r} missing required field(s): {', '.join(missing)}")
         if r["harness"] not in harnesses:
             raise ValueError(f"routine {r['name']!r} references unknown harness {r['harness']!r}")
         tmpl = Path(r["prompt_template"])
@@ -289,23 +303,12 @@ def fire_routine(cfg: Config, routine: Routine) -> None:
     log_file.parent.mkdir(parents=True, exist_ok=True)
 
     log.info("[%s] firing run=%s worktree=%s", routine.name, run_id, worktree)
+    rc = -1
+    last_error: str | None = None
     try:
         clone_worktree(routine.repo, routine.base_branch, worktree)
-    except subprocess.CalledProcessError as e:
-        log.error("[%s] clone failed: %s", routine.name, e)
-        with update_state(cfg.state_dir, routine.name) as state:
-            state["last_error"] = f"clone failed: {e}"
-            state["in_flight"] = [r for r in state.get("in_flight", []) if r != run_id]
-            state["last_finished_at"] = now_ts()
-            state["last_exit_code"] = -1
-            state["last_run_id"] = run_id
-        return
-
-    prompt = render_prompt(routine, run_id, worktree)
-    harness = cfg.harnesses[routine.harness]
-
-    rc = -1
-    try:
+        prompt = render_prompt(routine, run_id, worktree)
+        harness = cfg.harnesses[routine.harness]
         rc = harness.run(
             prompt=prompt,
             cwd=worktree,
@@ -314,8 +317,12 @@ def fire_routine(cfg: Config, routine: Routine) -> None:
             extra_env=routine.extra_env or {},
         )
         log.info("[%s] run=%s exit=%d", routine.name, run_id, rc)
+    except subprocess.CalledProcessError as e:
+        log.error("[%s] clone failed: %s", routine.name, e)
+        last_error = f"clone failed: {e}"
     except Exception as e:  # noqa: BLE001
         log.exception("[%s] run=%s crashed: %s", routine.name, run_id, e)
+        last_error = f"crashed: {e}"
     finally:
         cleanup_worktree(worktree)
         with update_state(cfg.state_dir, routine.name) as state:
@@ -323,6 +330,8 @@ def fire_routine(cfg: Config, routine: Routine) -> None:
             state["last_finished_at"] = now_ts()
             state["last_exit_code"] = rc
             state["last_run_id"] = run_id
+            if last_error:
+                state["last_error"] = last_error
 
 
 def tick(cfg: Config) -> None:
