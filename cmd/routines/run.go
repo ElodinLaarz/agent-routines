@@ -13,7 +13,14 @@ import (
 func newRunCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "run <name>",
-		Short: "Fire one routine immediately (out-of-band, respects per-routine lock)",
+		Short: "Fire one routine immediately (best-effort; in-process lock only)",
+		Long: `Fire one routine immediately, in this process.
+
+The per-routine lock used by the daemon lives in memory inside the
+daemon process, so this command does NOT coordinate with a separately-
+running daemon. If the daemon is running and you want it to fire the
+routine on its schedule, just wait — or stop the daemon, run, then
+restart.`,
 		Args:  cobra.ExactArgs(1),
 		RunE: func(_ *cobra.Command, args []string) error {
 			name := args[0]

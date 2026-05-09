@@ -13,7 +13,7 @@ import (
 func newInstallServiceCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "install-service",
-		Short: "Install routined as a managed service for the current user",
+		Short: "Install routines as a managed user service (systemd / launchd)",
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			return installService(cmd.OutOrStdout())
 		},

@@ -4,7 +4,6 @@ package store
 
 import (
 	"database/sql"
-	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -16,8 +15,7 @@ import (
 
 // History records every run.
 type History struct {
-	db   *sql.DB
-	path string
+	db *sql.DB
 }
 
 // Run is a single row in the runs table.
@@ -43,7 +41,7 @@ func OpenHistory(path string) (*History, error) {
 		return nil, err
 	}
 	db.SetMaxOpenConns(1)
-	h := &History{db: db, path: path}
+	h := &History{db: db}
 	if err := h.migrate(); err != nil {
 		_ = db.Close()
 		return nil, err
@@ -172,8 +170,3 @@ func mkParent(p string) error {
 	}
 	return nil
 }
-
-// errors returned by the package
-var (
-	ErrNotFound = errors.New("not found")
-)

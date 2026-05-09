@@ -34,9 +34,12 @@ $LogDir = Join-Path $env:USERPROFILE ".routines"
 New-Item -ItemType Directory -Path $LogDir -Force | Out-Null
 $Log = Join-Path $LogDir "daemon.log"
 
+# Wrap in cmd /c so we can redirect stdout+stderr to the log file —
+# Task Scheduler does not natively redirect a task's streams.
+$cmdArg = '/c ""' + $resolved + '" daemon >> "' + $Log + '" 2>&1'
 $action = New-ScheduledTaskAction `
-    -Execute $resolved `
-    -Argument "daemon" `
+    -Execute "cmd.exe" `
+    -Argument $cmdArg `
     -WorkingDirectory $env:USERPROFILE
 
 $logon  = New-ScheduledTaskTrigger -AtLogOn -User $env:USERNAME

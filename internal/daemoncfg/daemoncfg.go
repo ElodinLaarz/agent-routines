@@ -10,6 +10,8 @@ import (
 	"strings"
 
 	"gopkg.in/yaml.v3"
+
+	"github.com/ElodinLaarz/agent-routines/internal/store"
 )
 
 // Config is the daemon-wide settings file.
@@ -43,15 +45,26 @@ type AdapterSpec struct {
 	} `yaml:"claude,omitempty"`
 }
 
-// Defaults returns a Config seeded with the standard XDG paths.
+// Defaults returns a Config seeded with sensible paths.
+//
+// Routines spec dir honors XDG: $XDG_CONFIG_HOME/agent-routines/routines
+// when set, else ~/.routines/routines.
+//
+// Log dir, state DB, and env file always live under ~/.routines/ — those
+// are runtime data, not config, and XDG_DATA_HOME would split the
+// install across two trees for marginal benefit.
 func Defaults() (*Config, error) {
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return nil, err
 	}
+	routinesDir, err := store.DefaultRoutinesDir()
+	if err != nil {
+		return nil, err
+	}
 	root := filepath.Join(home, ".routines")
 	return &Config{
-		RoutinesDir: filepath.Join(root, "routines"),
+		RoutinesDir: routinesDir,
 		LogDir:      filepath.Join(root, "logs"),
 		StateDB:     filepath.Join(root, "state.db"),
 		EnvFile:     filepath.Join(root, "env"),

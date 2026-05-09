@@ -1,6 +1,8 @@
 package spec
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -85,6 +87,9 @@ func TestParseSchedule(t *testing.T) {
 		{"daily 09:30", "30 9 * * *", false},
 		{"every 30s", "@every 30s", false},
 		{"every 5m", "@every 5m0s", false},
+		{"every 1d", "@every 24h0m0s", false},
+		{"every 2d", "@every 48h0m0s", false},
+		{"every 1d12h", "@every 36h0m0s", false},
 		{"*/5 * * * *", "*/5 * * * *", false},
 		{"daily 25:00", "", true},
 		{"every -1m", "", true},
@@ -105,6 +110,35 @@ func TestParseSchedule(t *testing.T) {
 		if got != c.want {
 			t.Errorf("%q: got %q want %q", c.in, got, c.want)
 		}
+	}
+}
+
+func TestEnvFileOverridesLookup(t *testing.T) {
+	dir := t.TempDir()
+	envPath := filepath.Join(dir, ".env")
+	if err := os.WriteFile(envPath, []byte("FOO=from-file\nBAR=baz\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	look := func(k string) (string, bool) {
+		if k == "FOO" {
+			return "from-lookup", true
+		}
+		return "", false
+	}
+	y := []byte(`
+name: t
+agent: shell
+schedule: hourly
+command: ["echo", "${FOO}-${BAR}"]
+env_file: ` + envPath + `
+`)
+	r, err := Parse(y, look)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// per-routine env_file wins over caller lookup
+	if r.Command[1] != "from-file-baz" {
+		t.Errorf("got %q", r.Command[1])
 	}
 }
 

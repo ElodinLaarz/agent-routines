@@ -107,6 +107,24 @@ func looksLikeSecret(k, v string) bool {
 	return false
 }
 
+// dayRE matches the leading `<int>d` segment of a duration expression.
+var dayRE = regexp.MustCompile(`^(\d+)d`)
+
+// expandDays rewrites a leading `Nd` into `(N*24)h` so time.ParseDuration
+// accepts it. Returns the rewritten string and true if a substitution
+// occurred.
+func expandDays(s string) (string, bool) {
+	m := dayRE.FindStringSubmatch(s)
+	if m == nil {
+		return s, false
+	}
+	n, err := strconv.Atoi(m[1])
+	if err != nil {
+		return s, false
+	}
+	return fmt.Sprintf("%dh", n*24) + s[len(m[0]):], true
+}
+
 // ParseSchedule normalizes a schedule string into a cron expression that
 // robfig/cron's standard parser accepts. It accepts:
 //
@@ -136,7 +154,13 @@ func ParseSchedule(s string) (string, error) {
 		}
 		return fmt.Sprintf("%d %d * * *", m, h), nil
 	case strings.HasPrefix(lower, "every "):
-		d, err := time.ParseDuration(strings.TrimSpace(lower[len("every "):]))
+		arg := strings.TrimSpace(lower[len("every "):])
+		// time.ParseDuration does not understand `d`; expand `Nd` to N*24h
+		// and any compound like `1d12h` to its h-equivalent.
+		if expanded, ok := expandDays(arg); ok {
+			arg = expanded
+		}
+		d, err := time.ParseDuration(arg)
 		if err != nil {
 			return "", fmt.Errorf("every <duration>: %w", err)
 		}

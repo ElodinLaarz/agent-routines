@@ -57,7 +57,9 @@ func (w Webhook) Notify(ctx context.Context, evt Event) error {
 			if attempt == 2 {
 				return err
 			}
-			time.Sleep(backoff)
+			if err := sleepCtx(ctx, backoff); err != nil {
+				return err
+			}
 			backoff *= 2
 			continue
 		}
@@ -71,11 +73,25 @@ func (w Webhook) Notify(ctx context.Context, evt Event) error {
 			if attempt == 2 {
 				return fmt.Errorf("webhook %s: %d after retries", w.URL, resp.StatusCode)
 			}
-			time.Sleep(backoff)
+			if err := sleepCtx(ctx, backoff); err != nil {
+				return err
+			}
 			backoff *= 2
 		default:
 			return fmt.Errorf("webhook %s: %d", w.URL, resp.StatusCode)
 		}
 	}
 	return nil
+}
+
+// sleepCtx blocks for d, returning ctx.Err() promptly on cancellation.
+func sleepCtx(ctx context.Context, d time.Duration) error {
+	t := time.NewTimer(d)
+	defer t.Stop()
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-t.C:
+		return nil
+	}
 }

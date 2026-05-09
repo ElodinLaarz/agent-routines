@@ -114,12 +114,36 @@ func (r *strReader) Read(p []byte) (int, error) {
 	return n, nil
 }
 
+// mergeEnv returns the process environment overlaid with `custom`, with
+// duplicate keys collapsed so callers see exactly one entry per name.
+// Without this, child processes can inherit two `KEY=...` lines and
+// which one "wins" becomes platform/process-dependent.
 func mergeEnv(custom map[string]string) []string {
-	out := append([]string{}, osEnviron()...)
+	merged := map[string]string{}
+	for _, kv := range osEnviron() {
+		eq := indexEq(kv)
+		if eq <= 0 {
+			continue
+		}
+		merged[kv[:eq]] = kv[eq+1:]
+	}
 	for k, v := range custom {
+		merged[k] = v
+	}
+	out := make([]string, 0, len(merged))
+	for k, v := range merged {
 		out = append(out, k+"="+v)
 	}
 	return out
+}
+
+func indexEq(s string) int {
+	for i := 0; i < len(s); i++ {
+		if s[i] == '=' {
+			return i
+		}
+	}
+	return -1
 }
 
 // killProcessTree and setNewProcessGroup live in platform-specific files.

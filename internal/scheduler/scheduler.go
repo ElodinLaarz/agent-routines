@@ -62,9 +62,13 @@ func New(cfg Config) *Scheduler {
 func (s *Scheduler) Start() { s.c.Start() }
 
 // Stop signals the cron loop to halt and waits up to GracePeriod for any
-// in-flight runs to finish. Returns immediately on grace expiry.
+// in-flight runs to finish. Returns when in-flight goroutines complete OR
+// the grace period elapses, whichever comes first.
 func (s *Scheduler) Stop() {
-	stopCtx := s.c.Stop() // cron's Stop returns a ctx that closes when current entries complete
+	// cron's Stop returns a ctx that closes when current entries complete.
+	// We don't block on it — the WaitGroup is the source of truth and the
+	// grace timer is the upper bound.
+	_ = s.c.Stop()
 
 	done := make(chan struct{})
 	go func() {
@@ -76,7 +80,6 @@ func (s *Scheduler) Stop() {
 	case <-done:
 	case <-time.After(s.cfg.GracePeriod):
 	}
-	<-stopCtx.Done()
 }
 
 // AddOrReplace registers (or updates) a routine. Returns nil if the
@@ -98,6 +101,14 @@ func (s *Scheduler) AddOrReplace(r *spec.Routine) error {
 		cronExpr = "0 " + cronExpr
 	}
 
+	// Pre-create the per-routine lock BEFORE registering with cron so a
+	// fire that happens to be due immediately can't read a nil entry.
+	s.mu.Lock()
+	if _, ok := s.locks[r.Name]; !ok {
+		s.locks[r.Name] = &sync.Mutex{}
+	}
+	s.mu.Unlock()
+
 	id, err := s.c.AddFunc(cronExpr, s.fireFunc(r))
 	if err != nil {
 		return fmt.Errorf("add cron: %w", err)
@@ -109,9 +120,6 @@ func (s *Scheduler) AddOrReplace(r *spec.Routine) error {
 		s.c.Remove(old)
 	}
 	s.jobs[r.Name] = id
-	if _, ok := s.locks[r.Name]; !ok {
-		s.locks[r.Name] = &sync.Mutex{}
-	}
 	return nil
 }
 
@@ -138,17 +146,16 @@ func (s *Scheduler) NextFire(name string) time.Time {
 	return entry.Next
 }
 
-// fireFunc wraps a routine in skip-if-running, log-capture, history,
-// and notifier plumbing.
+// fireFunc wraps a routine in skip-if-running plus the full retry +
+// notifier orchestration. Defensive: re-creates the per-routine lock
+// if for any reason it's missing.
 func (s *Scheduler) fireFunc(r *spec.Routine) func() {
 	name := r.Name
 	return func() {
 		s.inFlightWg.Add(1)
 		defer s.inFlightWg.Done()
 
-		s.mu.Lock()
-		lock := s.locks[name]
-		s.mu.Unlock()
+		lock := s.lockFor(name)
 		if !lock.TryLock() {
 			stdlog.Printf("[%s] skipped: previous run still in flight", name)
 			if s.cfg.History != nil {
@@ -162,8 +169,60 @@ func (s *Scheduler) fireFunc(r *spec.Routine) func() {
 	}
 }
 
-// runOnce executes a single fire. Exported via FireNow for `routines run`.
+// lockFor returns the per-routine mutex, creating one if missing.
+func (s *Scheduler) lockFor(name string) *sync.Mutex {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if l, ok := s.locks[name]; ok {
+		return l
+	}
+	l := &sync.Mutex{}
+	s.locks[name] = l
+	return l
+}
+
+// runResult captures the outcome of one execution attempt.
+type runResult struct {
+	exit     int
+	runErr   error
+	status   string
+	started  time.Time
+	finished time.Time
+	logPath  string
+	timedOut bool
+}
+
+// runOnce orchestrates a fire: execute, then retry on failure per the
+// routine's policy (bounded by r.Retries — no recursion). The notifier
+// fires once, with the final attempt's status.
 func (s *Scheduler) runOnce(r *spec.Routine) {
+	res := s.executeOnce(r)
+
+	if res.status != notify.StatusSuccess && r.OnFailure == "retry" && r.Retries > 0 && !res.timedOut {
+		backoff := r.Backoff
+		if backoff == 0 {
+			backoff = 30 * time.Second
+		}
+		for i := 0; i < r.Retries; i++ {
+			time.Sleep(backoff)
+			stdlog.Printf("[%s] retry %d/%d (last exit=%d err=%v)",
+				r.Name, i+1, r.Retries, res.exit, res.runErr)
+			res = s.executeOnce(r)
+			if res.status == notify.StatusSuccess {
+				break
+			}
+		}
+	}
+
+	s.maybeNotify(r, res)
+
+	if s.cfg.KeepLastN > 0 || s.cfg.MaxLogAge > 0 {
+		_, _ = pkglog.Prune(s.cfg.LogDir, r.Name, s.cfg.KeepLastN, s.cfg.MaxLogAge)
+	}
+}
+
+// executeOnce runs the adapter once and writes log + history. No retries.
+func (s *Scheduler) executeOnce(r *spec.Routine) runResult {
 	startedAt := time.Now()
 	w, err := pkglog.New(s.cfg.LogDir, r.Name, startedAt)
 	var logPath string
@@ -184,15 +243,10 @@ func (s *Scheduler) runOnce(r *spec.Routine) {
 	}
 
 	a, aerr := s.cfg.Adapters.Get(r.Agent)
-	var (
-		exit    int
-		runErr  error
-		status  = notify.StatusSuccess
-		dur     time.Duration
-		timedOut bool
-	)
+	res := runResult{started: startedAt, status: notify.StatusSuccess, logPath: logPath}
+	var dur time.Duration
 	if aerr != nil {
-		exit, runErr, status = -1, aerr, notify.StatusFailed
+		res.exit, res.runErr, res.status = -1, aerr, notify.StatusFailed
 	} else {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
@@ -205,84 +259,106 @@ func (s *Scheduler) runOnce(r *spec.Routine) {
 			Stderr:  w,
 			Command: r.Command,
 		}
-		var res adapter.Result
-		res, runErr = a.Run(ctx, req)
-		exit = res.ExitCode
-		dur = res.Duration
+		out, runErr := a.Run(ctx, req)
+		res.runErr = runErr
+		res.exit = out.ExitCode
+		dur = out.Duration
 
 		switch {
 		case runErr != nil && strings.Contains(runErr.Error(), "timeout"):
-			status, timedOut = notify.StatusTimeout, true
-		case runErr != nil || exit != 0:
-			status = notify.StatusFailed
+			res.status, res.timedOut = notify.StatusTimeout, true
+		case runErr != nil || res.exit != 0:
+			res.status = notify.StatusFailed
 		}
 	}
 
-	finished := startedAt.Add(dur)
+	res.finished = startedAt.Add(dur)
 	if dur == 0 {
-		finished = time.Now()
+		res.finished = time.Now()
 	}
 
 	if w != nil {
 		_, _ = fmt.Fprintf(w, "=== finished status=%s exit=%d duration=%s ===\n",
-			status, exit, finished.Sub(startedAt))
+			res.status, res.exit, res.finished.Sub(startedAt))
 		_ = w.Close()
 	}
 
 	if s.cfg.History != nil && runID > 0 {
-		_ = s.cfg.History.Finish(runID, status, exit, runErr)
+		_ = s.cfg.History.Finish(runID, res.status, res.exit, res.runErr)
 	}
-
-	if s.cfg.Notifier != nil {
-		evt := notify.Event{
-			Routine:  r.Name,
-			Status:   status,
-			Started:  startedAt,
-			Finished: finished,
-			ExitCode: exit,
-			LogPath:  logPath,
-		}
-		if runErr != nil {
-			evt.Error = runErr.Error()
-		}
-		_ = s.cfg.Notifier.Notify(context.Background(), evt)
-	}
-
-	// rotation
-	if s.cfg.KeepLastN > 0 || s.cfg.MaxLogAge > 0 {
-		_, _ = pkglog.Prune(s.cfg.LogDir, r.Name, s.cfg.KeepLastN, s.cfg.MaxLogAge)
-	}
-
-	// retry policy: simple synchronous retries with backoff for OnFailure=retry
-	if status != notify.StatusSuccess && r.OnFailure == "retry" && r.Retries > 0 && !timedOut {
-		s.retry(r, exit, runErr)
-	}
+	return res
 }
 
-func (s *Scheduler) retry(r *spec.Routine, lastExit int, lastErr error) {
-	backoff := r.Backoff
-	if backoff == 0 {
-		backoff = 30 * time.Second
+// maybeNotify fires the configured notifier when the run failed, or when
+// the routine has explicitly opted in via OnFailure: alert. Per-routine
+// outputs[].notifier filters the daemon-wide notifier set by name.
+func (s *Scheduler) maybeNotify(r *spec.Routine, res runResult) {
+	if s.cfg.Notifier == nil {
+		return
 	}
-	for i := 0; i < r.Retries; i++ {
-		time.Sleep(backoff)
-		stdlog.Printf("[%s] retry %d/%d (last exit=%d err=%v)",
-			r.Name, i+1, r.Retries, lastExit, lastErr)
-		// NB: we intentionally do not recurse into runOnce's full logic —
-		// retries are best-effort and feed the same notifier on next runOnce.
-		s.runOnce(r)
+	shouldNotify := res.status != notify.StatusSuccess
+	if r.OnFailure == "alert" {
+		shouldNotify = true
 	}
+	if !shouldNotify {
+		return
+	}
+
+	n := s.cfg.Notifier
+	if filtered := filterNotifierByOutputs(n, r.Outputs); filtered != nil {
+		n = filtered
+	}
+
+	evt := notify.Event{
+		Routine:  r.Name,
+		Status:   res.status,
+		Started:  res.started,
+		Finished: res.finished,
+		ExitCode: res.exit,
+		LogPath:  res.logPath,
+	}
+	if res.runErr != nil {
+		evt.Error = res.runErr.Error()
+	}
+	_ = n.Notify(context.Background(), evt)
+}
+
+// filterNotifierByOutputs picks a sub-notifier from a Multi based on the
+// notifier names referenced in r.Outputs. Returns nil if filtering does
+// not apply (no outputs, base isn't Multi, or zero matches).
+func filterNotifierByOutputs(base notify.Notifier, outputs []spec.Output) notify.Notifier {
+	wanted := map[string]struct{}{}
+	for _, o := range outputs {
+		if o.Notifier != "" {
+			wanted[o.Notifier] = struct{}{}
+		}
+	}
+	if len(wanted) == 0 {
+		return nil
+	}
+	multi, ok := base.(notify.Multi)
+	if !ok {
+		return nil
+	}
+	var picked []notify.Notifier
+	for _, n := range multi.Notifiers {
+		if _, ok := wanted[n.Name()]; ok {
+			picked = append(picked, n)
+		}
+	}
+	if len(picked) == 0 {
+		return nil
+	}
+	if len(picked) == 1 {
+		return picked[0]
+	}
+	return notify.Multi{Notifiers: picked}
 }
 
 // FireNow runs a routine immediately, bypassing the schedule but honoring
 // the per-routine lock. Useful for `routines run <name>`.
 func (s *Scheduler) FireNow(r *spec.Routine) {
-	s.mu.Lock()
-	if _, ok := s.locks[r.Name]; !ok {
-		s.locks[r.Name] = &sync.Mutex{}
-	}
-	lock := s.locks[r.Name]
-	s.mu.Unlock()
+	lock := s.lockFor(r.Name)
 	if !lock.TryLock() {
 		stdlog.Printf("[%s] FireNow: lock busy", r.Name)
 		return

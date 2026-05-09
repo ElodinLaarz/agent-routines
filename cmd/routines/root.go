@@ -22,9 +22,11 @@ func newRootCmd() *cobra.Command {
 		Short: "Cron-like scheduler for agentic CLIs (Gemini, Claude Code, shell)",
 		Long: `routines runs declarative YAML routines on a schedule.
 
-Drop spec files into ~/.routines/routines/ (or $XDG_CONFIG_HOME/agent-routines/routines)
-and the daemon picks them up. Each fire invokes the configured adapter and
-streams its output to a per-run log under ~/.routines/logs/.`,
+Drop spec files into the routines directory and the daemon picks them up.
+The default routines directory is $XDG_CONFIG_HOME/agent-routines/routines
+when XDG_CONFIG_HOME is set, otherwise ~/.routines/routines. Each fire
+invokes the configured adapter and streams output to a per-run log under
+~/.routines/logs/.`,
 		SilenceUsage: true,
 	}
 	root.PersistentFlags().StringVar(&flagConfig, "config", defaultConfigPath(),

@@ -24,12 +24,14 @@ type Writer struct {
 // New opens a log file at <dir>/<routine>/<startedAt>.log. Caller must Close.
 func New(rootDir, routine string, startedAt time.Time, mirrors ...io.Writer) (*Writer, error) {
 	d := filepath.Join(rootDir, routine)
-	if err := os.MkdirAll(d, 0o755); err != nil {
+	// Routine output may include sensitive material (agent responses,
+	// command output). Restrict to owner only by default.
+	if err := os.MkdirAll(d, 0o700); err != nil {
 		return nil, err
 	}
 	name := startedAt.UTC().Format("20060102T150405Z") + ".log"
 	p := filepath.Join(d, name)
-	f, err := os.OpenFile(p, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o644)
+	f, err := os.OpenFile(p, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o600)
 	if err != nil {
 		return nil, err
 	}

@@ -54,7 +54,7 @@ func newDaemonCmd() *cobra.Command {
 			}
 
 			sch.Start()
-			fmt.Fprintf(cmd.OutOrStdout(), "routined started: %d routines, watching %s\n",
+			fmt.Fprintf(cmd.OutOrStdout(), "routines daemon started: %d routine(s), watching %s\n",
 				len(fs.Routines()), cfg.RoutinesDir)
 
 			// Hot-reload loop

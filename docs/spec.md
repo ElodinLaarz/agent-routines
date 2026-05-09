@@ -26,7 +26,8 @@ will use `name` to choose the destination.
 ## Schedule grammar
 
 - 5-field cron: `*/5 * * * *`
-- `every <Go duration>`: `every 30s`, `every 5m`, `every 2h`
+- `every <duration>`: `every 30s`, `every 5m`, `every 2h`, `every 1d`,
+  `every 1d12h`. Standard Go duration syntax plus the `d` (day) suffix.
 - `daily HH:MM`: `daily 09:30`
 - `hourly`: shorthand for `0 * * * *`
 

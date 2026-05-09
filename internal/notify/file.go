@@ -21,7 +21,9 @@ func (f *File) Notify(_ context.Context, evt Event) error {
 	if f.Path == "" {
 		return fmt.Errorf("file notifier: path is empty")
 	}
-	if err := os.MkdirAll(filepath.Dir(f.Path), 0o755); err != nil {
+	// Notification payloads can include error strings + log tails;
+	// default to owner-only on multi-user systems.
+	if err := os.MkdirAll(filepath.Dir(f.Path), 0o700); err != nil {
 		return err
 	}
 	data, err := json.Marshal(evt)
@@ -30,7 +32,7 @@ func (f *File) Notify(_ context.Context, evt Event) error {
 	}
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	fp, err := os.OpenFile(f.Path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
+	fp, err := os.OpenFile(f.Path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600)
 	if err != nil {
 		return err
 	}
