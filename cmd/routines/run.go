@@ -15,7 +15,7 @@ func newRunCmd() *cobra.Command {
 		Use:   "run <name>",
 		Short: "Fire one routine immediately (out-of-band, respects per-routine lock)",
 		Args:  cobra.ExactArgs(1),
-		RunE: func(cmd *cobra.Command, args []string) error {
+		RunE: func(_ *cobra.Command, args []string) error {
 			name := args[0]
 			cfg, envVals, err := loadCfg()
 			if err != nil {

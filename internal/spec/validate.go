@@ -66,15 +66,13 @@ func Validate(r *Routine) error {
 	if r.Timeout < 0 {
 		return newErr("timeout", "must be >= 0")
 	}
-	for k, v := range r.Env {
+	for k := range r.Env {
 		if k == "" {
 			return newErr("env", "empty key")
 		}
-		if looksLikeSecret(k, v) {
-			// Heuristic warn-only: surface via field so callers can log.
-			// We intentionally don't fail — users can override.
-		}
 	}
+	// Note: secret-looking env values are surfaced via LooksLikeSecretKeys
+	// for callers to warn on; we never fail validation on heuristics alone.
 	return nil
 }
 

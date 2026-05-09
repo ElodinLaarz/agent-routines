@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"time"
 
+	// Pure-Go SQLite driver (registered via init); imported for side effects.
 	_ "modernc.org/sqlite"
 )
 
