@@ -1,0 +1,10 @@
+name: morning-triage
+agent: gemini
+schedule: "0 9 * * *"
+workdir: ~/repos/foo
+prompt: |
+  Review overnight PRs in this repo. Summarize blockers in 5 bullets.
+timeout: 10m
+on_failure: alert
+env:
+  GEMINI_API_KEY: ${GEMINI_API_KEY}

@@ -1,0 +1,182 @@
+// Package daemoncfg loads ~/.routines/config.yaml and the env file used
+// for ${VAR} expansion in routine specs.
+package daemoncfg
+
+import (
+	"bufio"
+	"fmt"
+	"os"
+	"path/filepath"
+	"strings"
+
+	"gopkg.in/yaml.v3"
+
+	"github.com/ElodinLaarz/agent-routines/internal/store"
+)
+
+// Config is the daemon-wide settings file.
+type Config struct {
+	RoutinesDir string         `yaml:"routines_dir,omitempty"`
+	LogDir      string         `yaml:"log_dir,omitempty"`
+	StateDB     string         `yaml:"state_db,omitempty"`
+	EnvFile     string         `yaml:"env_file,omitempty"`
+	KeepLastN   int            `yaml:"keep_last_n,omitempty"`
+	Notifiers   []NotifierSpec `yaml:"notifiers,omitempty"`
+	Adapters    AdapterSpec    `yaml:"adapters,omitempty"`
+}
+
+// NotifierSpec is one daemon-level sink declaration.
+type NotifierSpec struct {
+	Name        string `yaml:"name"`
+	Kind        string `yaml:"kind"`           // stdout | file | webhook
+	Path        string `yaml:"path,omitempty"` // file
+	URL         string `yaml:"url,omitempty"`  // webhook
+	SlackCompat bool   `yaml:"slack_compat,omitempty"`
+}
+
+// AdapterSpec lets the user override binary paths.
+type AdapterSpec struct {
+	Gemini struct {
+		Bin string `yaml:"bin,omitempty"`
+	} `yaml:"gemini,omitempty"`
+	Claude struct {
+		Bin       string   `yaml:"bin,omitempty"`
+		ExtraArgs []string `yaml:"extra_args,omitempty"`
+	} `yaml:"claude,omitempty"`
+}
+
+// Defaults returns a Config seeded with sensible paths.
+//
+// Routines spec dir honors XDG: $XDG_CONFIG_HOME/agent-routines/routines
+// when set, else ~/.routines/routines.
+//
+// Log dir, state DB, and env file always live under ~/.routines/ — those
+// are runtime data, not config, and XDG_DATA_HOME would split the
+// install across two trees for marginal benefit.
+func Defaults() (*Config, error) {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return nil, err
+	}
+	routinesDir, err := store.DefaultRoutinesDir()
+	if err != nil {
+		return nil, err
+	}
+	root := filepath.Join(home, ".routines")
+	return &Config{
+		RoutinesDir: routinesDir,
+		LogDir:      filepath.Join(root, "logs"),
+		StateDB:     filepath.Join(root, "state.db"),
+		EnvFile:     filepath.Join(root, "env"),
+		KeepLastN:   50,
+	}, nil
+}
+
+// Load reads the daemon config (or returns Defaults when absent).
+func Load(path string) (*Config, error) {
+	d, err := Defaults()
+	if err != nil {
+		return nil, err
+	}
+	if path == "" {
+		return d, nil
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return d, nil
+		}
+		return nil, err
+	}
+	if err := yaml.Unmarshal(data, d); err != nil {
+		return nil, fmt.Errorf("%s: %w", path, err)
+	}
+	// Honor `~` and `${VAR}` in user-supplied paths; the docs claim these
+	// are expanded but unmarshal alone leaves them literal.
+	d.RoutinesDir = expandPath(d.RoutinesDir)
+	d.LogDir = expandPath(d.LogDir)
+	d.StateDB = expandPath(d.StateDB)
+	d.EnvFile = expandPath(d.EnvFile)
+	for i, n := range d.Notifiers {
+		d.Notifiers[i].Path = expandPath(n.Path)
+	}
+	return d, nil
+}
+
+// expandPath honors `~`, `~/...`, and `${VAR}`/`$VAR` references.
+func expandPath(p string) string {
+	if p == "" {
+		return p
+	}
+	p = os.ExpandEnv(p)
+	if !strings.HasPrefix(p, "~") {
+		return p
+	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return p
+	}
+	if p == "~" {
+		return home
+	}
+	if strings.HasPrefix(p, "~/") || strings.HasPrefix(p, `~\`) {
+		return filepath.Join(home, p[2:])
+	}
+	return p
+}
+
+// LoadEnvFile parses a dotenv file and returns its values. Missing files
+// are silently treated as empty.
+//
+// Format: KEY=value, lines starting with # are comments, surrounding
+// quotes on the value are stripped. No shell-style expansion.
+func LoadEnvFile(path string) (map[string]string, error) {
+	m := map[string]string{}
+	if path == "" {
+		return m, nil
+	}
+	f, err := os.Open(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return m, nil
+		}
+		return nil, err
+	}
+	defer f.Close()
+
+	sc := bufio.NewScanner(f)
+	lineNo := 0
+	for sc.Scan() {
+		lineNo++
+		line := strings.TrimSpace(sc.Text())
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		eq := strings.IndexByte(line, '=')
+		if eq <= 0 {
+			return nil, fmt.Errorf("%s:%d: expected KEY=VALUE", path, lineNo)
+		}
+		k := strings.TrimSpace(line[:eq])
+		v := strings.TrimSpace(line[eq+1:])
+		v = strings.Trim(v, `"'`)
+		m[k] = v
+	}
+	return m, sc.Err()
+}
+
+// MergeLookup returns a function that walks daemon-env-file values first,
+// then falls back to the process environment (`os.LookupEnv`). Per-routine
+// `env_file:` values are layered on top of this in spec.Parse — that
+// makes the full precedence order:
+//
+//	per-routine env_file > daemon env-file > process env
+//
+// Returned values are never redacted; callers must avoid logging them.
+func MergeLookup(envFileVals map[string]string) func(string) (string, bool) {
+	return func(k string) (string, bool) {
+		if v, ok := envFileVals[k]; ok {
+			return v, true
+		}
+		return os.LookupEnv(k)
+	}
+}

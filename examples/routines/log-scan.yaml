@@ -1,0 +1,6 @@
+name: log-scan
+agent: shell
+schedule: "every 15m"
+command: ["bash", "-lc", "journalctl -u myservice --since='15 minutes ago' | grep -E 'ERROR|FATAL' || true"]
+timeout: 1m
+on_failure: skip

@@ -1,0 +1,28 @@
+# ~/.routines/config.yaml — daemon-level settings.
+# All paths support ~ expansion.
+
+routines_dir: ~/.routines/routines
+log_dir:      ~/.routines/logs
+state_db:     ~/.routines/state.db
+env_file:     ~/.routines/env
+keep_last_n:  50
+
+# Notifiers fan out per-run results. If unset, a stdout sink is used.
+notifiers:
+  - name: stderr
+    kind: stdout
+  - name: history-jsonl
+    kind: file
+    path: ~/.routines/notifications.jsonl
+  # - name: slack
+  #   kind: webhook
+  #   url: https://hooks.slack.com/services/XXX/YYY/ZZZ
+  #   slack_compat: true
+
+# Override per-adapter binary paths if they aren't on PATH.
+adapters:
+  gemini:
+    bin: gemini
+  claude:
+    bin: claude
+    extra_args: []
