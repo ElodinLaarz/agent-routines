@@ -10,6 +10,11 @@ import (
 	"time"
 )
 
+// defaultClient is the package-level http.Client used when a Webhook
+// instance does not supply its own. Keeping a shared client lets the
+// underlying transport reuse TCP connections across notifications.
+var defaultClient = &http.Client{Timeout: 10 * time.Second}
+
 // Webhook POSTs the event JSON to URL. On 5xx it retries up to 3 times with
 // exponential backoff; 4xx is treated as terminal.
 type Webhook struct {
@@ -28,7 +33,7 @@ func (w Webhook) Notify(ctx context.Context, evt Event) error {
 	}
 	client := w.Client
 	if client == nil {
-		client = &http.Client{Timeout: 10 * time.Second}
+		client = defaultClient
 	}
 
 	var body []byte

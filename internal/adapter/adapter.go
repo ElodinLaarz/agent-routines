@@ -103,21 +103,28 @@ func runCmd(ctx context.Context, cmd *exec.Cmd, r Request, stdin string) (Result
 // duplicate keys collapsed so callers see exactly one entry per name.
 // Without this, child processes can inherit two `KEY=...` lines and
 // which one "wins" becomes platform/process-dependent.
+//
+// Windows env-var names are case-insensitive — `Path` and `PATH` refer
+// to the same variable. We normalize to upper-case while merging on
+// Windows so the dedup contract holds. Original casing of the surviving
+// entry is preserved.
 func mergeEnv(custom map[string]string) []string {
-	merged := map[string]string{}
+	type entry struct{ k, v string }
+	merged := map[string]entry{}
 	for _, kv := range osEnviron() {
 		eq := indexEq(kv)
 		if eq <= 0 {
 			continue
 		}
-		merged[kv[:eq]] = kv[eq+1:]
+		k := kv[:eq]
+		merged[envKey(k)] = entry{k, kv[eq+1:]}
 	}
 	for k, v := range custom {
-		merged[k] = v
+		merged[envKey(k)] = entry{k, v}
 	}
 	out := make([]string, 0, len(merged))
-	for k, v := range merged {
-		out = append(out, k+"="+v)
+	for _, e := range merged {
+		out = append(out, e.k+"="+e.v)
 	}
 	return out
 }

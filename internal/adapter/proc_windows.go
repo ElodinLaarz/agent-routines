@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"strings"
 	"syscall"
 )
 
@@ -26,3 +27,8 @@ func killProcessTree(cmd *exec.Cmd) {
 }
 
 func osEnviron() []string { return os.Environ() }
+
+// envKey returns the case-folded key used to dedup environment variables.
+// Windows env-var names are case-insensitive (Path == PATH), so fold to
+// upper-case so the dedup contract holds.
+func envKey(k string) string { return strings.ToUpper(k) }

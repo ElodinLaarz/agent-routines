@@ -81,24 +81,25 @@ func (h *History) Begin(routine string, startedAt time.Time, logPath string) (in
 	return res.LastInsertId()
 }
 
-// Finish updates a previously-begun run.
-func (h *History) Finish(id int64, status string, exitCode int, runErr error) error {
+// Finish updates a previously-begun run. duration is the actual measured
+// adapter execution time; storing it from Go preserves sub-second
+// precision that an SQL `julianday()` round-trip would lose against
+// SQLite's second-resolution datetime storage.
+func (h *History) Finish(id int64, status string, exitCode int, duration time.Duration, runErr error) error {
 	now := time.Now().UTC()
 	var errStr string
 	if runErr != nil {
 		errStr = runErr.Error()
 	}
-	// Compute duration as `(finished - started)` in SQL so callers do not
-	// need to remember the start time.
 	_, err := h.db.Exec(`
 UPDATE runs
 SET finished_at = ?,
     status      = ?,
     exit_code   = ?,
-    duration_ms = CAST((julianday(?) - julianday(started_at)) * 86400000 AS INTEGER),
+    duration_ms = ?,
     error       = ?
 WHERE id = ?
-`, now, status, exitCode, now, errStr, id)
+`, now, status, exitCode, duration.Milliseconds(), errStr, id)
 	return err
 }
 

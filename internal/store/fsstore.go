@@ -147,16 +147,24 @@ func (s *FSStore) Watch(ctx context.Context) error {
 		if t, ok := timers[path]; ok {
 			t.Stop()
 		}
-		timers[path] = time.AfterFunc(debounce, func() {
+		// Capture a pointer to the timer we're about to install so the
+		// callback only deletes its own entry. Without this check, an
+		// in-flight callback whose path receives a fresh schedule() call
+		// would clobber the new timer when it deletes from the map.
+		var self *time.Timer
+		self = time.AfterFunc(debounce, func() {
 			if removed {
 				s.deleteFile(path)
 			} else {
 				s.loadFile(path, true)
 			}
 			tmu.Lock()
-			delete(timers, path)
+			if timers[path] == self {
+				delete(timers, path)
+			}
 			tmu.Unlock()
 		})
+		timers[path] = self
 	}
 
 	for {

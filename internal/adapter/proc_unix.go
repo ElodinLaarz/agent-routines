@@ -23,3 +23,7 @@ func killProcessTree(cmd *exec.Cmd) {
 }
 
 func osEnviron() []string { return os.Environ() }
+
+// envKey returns the case-folded key used to dedup environment variables.
+// POSIX env-var names are case-sensitive — return the key unchanged.
+func envKey(k string) string { return k }

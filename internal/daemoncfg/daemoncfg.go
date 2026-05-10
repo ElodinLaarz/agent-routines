@@ -91,7 +91,38 @@ func Load(path string) (*Config, error) {
 	if err := yaml.Unmarshal(data, d); err != nil {
 		return nil, fmt.Errorf("%s: %w", path, err)
 	}
+	// Honor `~` and `${VAR}` in user-supplied paths; the docs claim these
+	// are expanded but unmarshal alone leaves them literal.
+	d.RoutinesDir = expandPath(d.RoutinesDir)
+	d.LogDir = expandPath(d.LogDir)
+	d.StateDB = expandPath(d.StateDB)
+	d.EnvFile = expandPath(d.EnvFile)
+	for i, n := range d.Notifiers {
+		d.Notifiers[i].Path = expandPath(n.Path)
+	}
 	return d, nil
+}
+
+// expandPath honors `~`, `~/...`, and `${VAR}`/`$VAR` references.
+func expandPath(p string) string {
+	if p == "" {
+		return p
+	}
+	p = os.ExpandEnv(p)
+	if !strings.HasPrefix(p, "~") {
+		return p
+	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return p
+	}
+	if p == "~" {
+		return home
+	}
+	if strings.HasPrefix(p, "~/") || strings.HasPrefix(p, `~\`) {
+		return filepath.Join(home, p[2:])
+	}
+	return p
 }
 
 // LoadEnvFile parses a dotenv file and returns its values. Missing files

@@ -70,18 +70,20 @@ func New(cfg Config) *Scheduler {
 // Start kicks off the cron loop. Call Stop for graceful shutdown.
 func (s *Scheduler) Start() { s.c.Start() }
 
-// Stop signals the cron loop to halt and waits up to GracePeriod for any
-// in-flight runs to finish. Returns when in-flight goroutines complete OR
-// the grace period elapses, whichever comes first.
+// Stop signals the cron loop to halt, cancels in-flight executions, and
+// waits up to GracePeriod for them to clean up and exit.
 //
-// On grace expiry, runCtx is canceled — adapters that honor ctx (the shared
-// runCmd helper does) will receive cancellation and unwind their child
-// process trees immediately.
+// runCtx is canceled immediately so adapters and ctx-aware sleeps (retry
+// backoffs, webhook backoffs) start unwinding right away. The grace
+// period is the upper bound on how long we wait for them to finish.
 func (s *Scheduler) Stop() {
 	// cron's Stop returns a ctx that closes when current entries complete.
 	// We don't block on it — the WaitGroup is the source of truth and the
 	// grace timer is the upper bound.
 	_ = s.c.Stop()
+
+	// Signal in-flight runs to unwind right away.
+	s.runCancel()
 
 	done := make(chan struct{})
 	go func() {
@@ -92,16 +94,7 @@ func (s *Scheduler) Stop() {
 	select {
 	case <-done:
 	case <-time.After(s.cfg.GracePeriod):
-		// Grace expired with runs still in flight — cancel their ctx so
-		// adapter calls return promptly. Then wait briefly for them to
-		// observe the cancellation and exit.
-		s.runCancel()
-		select {
-		case <-done:
-		case <-time.After(2 * time.Second):
-		}
 	}
-	s.runCancel()
 }
 
 // AddOrReplace registers (or updates) a routine. Returns nil if the
@@ -145,7 +138,13 @@ func (s *Scheduler) AddOrReplace(r *spec.Routine) error {
 	return nil
 }
 
-// Remove unregisters a routine and drops its per-routine lock.
+// Remove unregisters a routine.
+//
+// The per-routine entry in `locks` is intentionally retained: a hot-reload
+// (remove + re-add of the same name) while a previous run is still in flight
+// would otherwise hand the new job a fresh mutex, allowing concurrent runs
+// on the same routine. Routine names are bounded in practice, so the
+// retained map entries are a non-issue.
 func (s *Scheduler) Remove(name string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -153,7 +152,6 @@ func (s *Scheduler) Remove(name string) {
 		s.c.Remove(id)
 		delete(s.jobs, name)
 	}
-	delete(s.locks, name)
 }
 
 // NextFire returns the next scheduled fire time for a routine, or zero
@@ -349,7 +347,7 @@ func finalize(s *Scheduler, w *pkglog.Writer, runID int64, res runResult, starte
 		_ = w.Close()
 	}
 	if s.cfg.History != nil && runID > 0 {
-		_ = s.cfg.History.Finish(runID, res.status, res.exit, res.runErr)
+		_ = s.cfg.History.Finish(runID, res.status, res.exit, res.finished.Sub(res.started), res.runErr)
 	}
 	return res
 }
