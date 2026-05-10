@@ -71,6 +71,9 @@ func Validate(r *Routine) error {
 			return newErr("env", "empty key")
 		}
 	}
+	if r.Worktree != nil && r.Workdir == "" {
+		return newErr("worktree", "requires `workdir:` to point at a git repository")
+	}
 	// Note: secret-looking env values are surfaced via LooksLikeSecretKeys
 	// for callers to warn on; we never fail validation on heuristics alone.
 	return nil

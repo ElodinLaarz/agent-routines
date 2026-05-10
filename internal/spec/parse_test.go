@@ -142,6 +142,24 @@ env_file: ` + envPath + `
 	}
 }
 
+func TestValidateWorktreeRequiresWorkdir(t *testing.T) {
+	r := &Routine{
+		Name:     "x",
+		Agent:    "claude",
+		Schedule: "hourly",
+		Prompt:   "hi",
+		Worktree: &WorktreeSpec{},
+	}
+	err := Validate(r)
+	if err == nil || !strings.Contains(err.Error(), "worktree") {
+		t.Errorf("expected worktree error, got %v", err)
+	}
+	r.Workdir = "/repo"
+	if err := Validate(r); err != nil {
+		t.Errorf("with workdir set: %v", err)
+	}
+}
+
 func TestSecretHeuristic(t *testing.T) {
 	r := &Routine{Env: map[string]string{
 		"GEMINI_API_KEY": "sk-aaaaaaaaaaaaaaaaaaaaaaaa",

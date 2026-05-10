@@ -19,9 +19,12 @@ with the load error.
 
 ## `routines run <name>`
 
-Fires one routine immediately. Honors the same per-routine lock the
-daemon does, so this is safe to call while the daemon is running. If
-the daemon is down, runs inline.
+Fires one routine immediately, in this process.
+
+The per-routine lock is in-memory inside the daemon, so this command
+does NOT coordinate with a separately-running daemon. If the daemon
+is up and you want it to fire on schedule, just wait — or stop the
+daemon, run, and restart.
 
 ## `routines add <file.yaml> [--dry-run]`
 

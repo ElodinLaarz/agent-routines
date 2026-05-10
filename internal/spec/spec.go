@@ -46,10 +46,11 @@ type WorktreeSpec struct {
 	PostCreate string `yaml:"post_create,omitempty"`
 }
 
-// Output is one notifier/sink reference for a routine.
+// Output references a daemon-level notifier by name. The `log:` form
+// (path templating per-routine) is intentionally not part of v0.1; logs
+// always live at <log_dir>/<routine>/<run-id>.log.
 type Output struct {
-	Log      string `yaml:"log,omitempty"`      // path template
-	Notifier string `yaml:"notifier,omitempty"` // name from daemon config
+	Notifier string `yaml:"notifier,omitempty"`
 }
 
 // IsEnabled returns true unless explicitly disabled.

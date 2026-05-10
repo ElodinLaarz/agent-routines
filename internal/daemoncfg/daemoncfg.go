@@ -164,8 +164,14 @@ func LoadEnvFile(path string) (map[string]string, error) {
 	return m, sc.Err()
 }
 
-// MergeLookup returns a function that walks daemon-env -> file-env ->
-// process-env, redacting nothing — caller must avoid logging values.
+// MergeLookup returns a function that walks daemon-env-file values first,
+// then falls back to the process environment (`os.LookupEnv`). Per-routine
+// `env_file:` values are layered on top of this in spec.Parse — that
+// makes the full precedence order:
+//
+//	per-routine env_file > daemon env-file > process env
+//
+// Returned values are never redacted; callers must avoid logging them.
 func MergeLookup(envFileVals map[string]string) func(string) (string, bool) {
 	return func(k string) (string, bool) {
 		if v, ok := envFileVals[k]; ok {

@@ -167,12 +167,25 @@ func (s *FSStore) Watch(ctx context.Context) error {
 		timers[path] = self
 	}
 
+	// drainTimers stops any still-pending debounce timers and clears the
+	// map so callbacks already in their AfterFunc grace can no-op cleanly.
+	drainTimers := func() {
+		tmu.Lock()
+		for k, t := range timers {
+			t.Stop()
+			delete(timers, k)
+		}
+		tmu.Unlock()
+	}
+
 	for {
 		select {
 		case <-ctx.Done():
+			drainTimers()
 			return nil
 		case ev, ok := <-w.Events:
 			if !ok {
+				drainTimers()
 				return nil
 			}
 			if !isYAML(ev.Name) {
@@ -186,9 +199,11 @@ func (s *FSStore) Watch(ctx context.Context) error {
 			}
 		case err, ok := <-w.Errors:
 			if !ok {
+				drainTimers()
 				return nil
 			}
 			if err != nil && !errors.Is(err, context.Canceled) {
+				drainTimers()
 				return err
 			}
 		}

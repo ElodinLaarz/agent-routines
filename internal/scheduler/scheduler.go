@@ -3,6 +3,7 @@ package scheduler
 
 import (
 	"context"
+	cryptorand "crypto/rand"
 	"errors"
 	"fmt"
 	"io"
@@ -321,7 +322,7 @@ func (s *Scheduler) executeOnce(r *spec.Routine) runResult {
 		dur = out.Duration
 
 		switch {
-		case runErr != nil && strings.Contains(runErr.Error(), "timeout"):
+		case runErr != nil && errors.Is(runErr, adapter.ErrTimeout):
 			res.status, res.timedOut = notify.StatusTimeout, true
 		case runErr != nil || res.exit != 0:
 			res.status = notify.StatusFailed
@@ -358,7 +359,11 @@ func setupWorktree(ctx context.Context, r *spec.Routine, startedAt time.Time, w 
 		return nil, fmt.Errorf("worktree mode requires `workdir:` to point at a git repo")
 	}
 	wt := r.Worktree
-	runID := startedAt.UTC().Format("20060102T150405Z")
+	// Second-resolution timestamp + 6-char random suffix. Two fires in
+	// the same wall-clock second (manual `run` while a scheduled fire is
+	// pending, retry immediately after a quick failure, etc.) would
+	// otherwise collide on the branch name and fail `git worktree add`.
+	runID := startedAt.UTC().Format("20060102T150405Z") + "-" + randHex(6)
 	path := wt.Path
 	if path == "" {
 		path = filepath.Join(".worktrees", r.Name+"-"+runID)
@@ -375,6 +380,16 @@ func setupWorktree(ctx context.Context, r *spec.Routine, startedAt time.Time, w 
 		PostCreate: wt.PostCreate,
 		W:          w,
 	})
+}
+
+// randHex returns n hex chars sourced from crypto/rand. Falls back to a
+// nano-time-derived suffix if the OS RNG ever fails (extremely unlikely).
+func randHex(n int) string {
+	b := make([]byte, (n+1)/2)
+	if _, err := cryptorand.Read(b); err != nil {
+		return fmt.Sprintf("%x", time.Now().UnixNano())[:n]
+	}
+	return fmt.Sprintf("%x", b)[:n]
 }
 
 // maybeNotify fires the configured notifier when the run failed, or when

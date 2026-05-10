@@ -18,7 +18,7 @@ will use `name` to choose the destination.
 | `on_failure` | enum                | no                            | `retry` \| `skip` \| `alert`. Default `skip`. |
 | `retries`    | int                 | no                            | Used when `on_failure: retry`. |
 | `backoff`    | duration            | no                            | Sleep between retries. Default 30s. |
-| `outputs`    | list                | no                            | `{ log: <path> }` or `{ notifier: <name> }`. |
+| `outputs`    | list                | no                            | `{ notifier: <name> }` — filters which daemon-level notifiers fire for this routine. |
 | `env`        | map[string]string   | no                            | `${VAR}` expansion from env-file or process env. |
 | `env_file`   | string              | no                            | Per-routine env-file override. |
 | `enabled`    | bool                | no                            | Default `true`. |
@@ -36,10 +36,10 @@ will use `name` to choose the destination.
 ## ${VAR} expansion
 
 Values in `env`, `prompt`, `workdir`, and `command` honor `${VAR}`. The
-daemon resolves them in order:
+daemon resolves them in order, highest priority first:
 
-1. Daemon env-file (`~/.routines/env`)
-2. Per-routine `env_file:` (overrides 1)
+1. Per-routine `env_file:` (if set on the routine)
+2. Daemon env-file (`~/.routines/env`)
 3. Process environment
 
 Missing vars are left literal — fail loudly via the prompt rather than

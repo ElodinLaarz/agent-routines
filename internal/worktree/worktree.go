@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+	"time"
 )
 
 // Setup describes one worktree to create.
@@ -69,9 +70,15 @@ func Create(ctx context.Context, s Setup) (*Result, error) {
 	}
 
 	cleanup := func() error {
+		// Detach from the caller's ctx so a routine that timed out, was
+		// canceled, or was killed during shutdown still gets its worktree
+		// and branch cleaned up. Bound by an internal 30s deadline so a
+		// hung git invocation can't pin shutdown forever.
+		cctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
 		// remove --force handles uncommitted changes the routine may have left.
-		_ = runGit(ctx, top, s.W, "worktree", "remove", "--force", wtPath)
-		_ = runGit(ctx, top, s.W, "branch", "-D", s.BranchName)
+		_ = runGit(cctx, top, s.W, "worktree", "remove", "--force", wtPath)
+		_ = runGit(cctx, top, s.W, "branch", "-D", s.BranchName)
 		return nil
 	}
 

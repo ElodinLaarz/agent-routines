@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -30,8 +31,7 @@ func newUninstallServiceCmd() *cobra.Command {
 	}
 }
 
-func installService(out interface{}) error {
-	w := out.(interface{ Write(p []byte) (int, error) })
+func installService(w io.Writer) error {
 	switch runtime.GOOS {
 	case "linux":
 		return installSystemd(w)
@@ -43,8 +43,7 @@ func installService(out interface{}) error {
 	return fmt.Errorf("unsupported OS %q", runtime.GOOS)
 }
 
-func uninstallService(out interface{}) error {
-	w := out.(interface{ Write(p []byte) (int, error) })
+func uninstallService(w io.Writer) error {
 	switch runtime.GOOS {
 	case "linux":
 		return uninstallSystemd(w)
@@ -66,7 +65,7 @@ func systemdUnitPath() (string, error) {
 	return filepath.Join(home, ".config", "systemd", "user", systemdUnitName), nil
 }
 
-func installSystemd(out interface{ Write(p []byte) (int, error) }) error {
+func installSystemd(out io.Writer) error {
 	exe, err := os.Executable()
 	if err != nil {
 		return err
@@ -109,7 +108,7 @@ WantedBy=default.target
 	return nil
 }
 
-func uninstallSystemd(out interface{ Write(p []byte) (int, error) }) error {
+func uninstallSystemd(out io.Writer) error {
 	for _, args := range [][]string{
 		{"--user", "stop", systemdUnitName},
 		{"--user", "disable", systemdUnitName},
@@ -139,7 +138,7 @@ func launchdPath() (string, error) {
 	return filepath.Join(home, "Library", "LaunchAgents", launchdLabel+".plist"), nil
 }
 
-func installLaunchd(out interface{ Write(p []byte) (int, error) }) error {
+func installLaunchd(out io.Writer) error {
 	exe, err := os.Executable()
 	if err != nil {
 		return err
@@ -184,7 +183,7 @@ func installLaunchd(out interface{ Write(p []byte) (int, error) }) error {
 	return nil
 }
 
-func uninstallLaunchd(out interface{ Write(p []byte) (int, error) }) error {
+func uninstallLaunchd(out io.Writer) error {
 	dst, err := launchdPath()
 	if err != nil {
 		return err

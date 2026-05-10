@@ -35,6 +35,12 @@ type Adapter interface {
 	Run(ctx context.Context, r Request) (Result, error)
 }
 
+// ErrTimeout is wrapped into the error returned by Run when the request's
+// Timeout fires before the child process exits. Callers can classify a
+// timeout cleanly with errors.Is(err, adapter.ErrTimeout) instead of
+// pattern-matching on error strings.
+var ErrTimeout = errors.New("adapter timeout")
+
 // Registry holds adapters by name.
 type Registry struct{ m map[string]Adapter }
 
@@ -83,7 +89,7 @@ func runCmd(ctx context.Context, cmd *exec.Cmd, r Request, stdin string) (Result
 		<-done
 		dur := time.Since(start)
 		if errors.Is(ctx.Err(), context.DeadlineExceeded) {
-			return Result{ExitCode: -1, Duration: dur}, fmt.Errorf("timeout after %s", r.Timeout)
+			return Result{ExitCode: -1, Duration: dur}, fmt.Errorf("after %s: %w", r.Timeout, ErrTimeout)
 		}
 		return Result{ExitCode: -1, Duration: dur}, ctx.Err()
 	case err := <-done:
