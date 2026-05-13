@@ -129,7 +129,7 @@ func (h *History) LastN(routine string, n int) ([]Run, error) {
 	var out []Run
 	for rows.Next() {
 		var r Run
-		if err := rows.Scan(&r.ID, &r.Routine, &r.StartedAt, &r.FinishedAt, &r.Status, &r.ExitCode, &r.DurationMs, &r.LogPath, &r.Error); err != nil {
+		if err := scanRun(rows, &r); err != nil {
 			return nil, err
 		}
 		out = append(out, r)
@@ -153,12 +153,22 @@ JOIN (
 	out := map[string]Run{}
 	for rows.Next() {
 		var r Run
-		if err := rows.Scan(&r.ID, &r.Routine, &r.StartedAt, &r.FinishedAt, &r.Status, &r.ExitCode, &r.DurationMs, &r.LogPath, &r.Error); err != nil {
+		if err := scanRun(rows, &r); err != nil {
 			return nil, err
 		}
 		out[r.Routine] = r
 	}
 	return out, rows.Err()
+}
+
+func scanRun(rows *sql.Rows, r *Run) error {
+	var logPath, errText sql.NullString
+	if err := rows.Scan(&r.ID, &r.Routine, &r.StartedAt, &r.FinishedAt, &r.Status, &r.ExitCode, &r.DurationMs, &logPath, &errText); err != nil {
+		return err
+	}
+	r.LogPath = logPath.String
+	r.Error = errText.String
+	return nil
 }
 
 func mkParent(p string) error {
