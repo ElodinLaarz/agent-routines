@@ -15,8 +15,10 @@ type Claude struct {
 	ExtraArgs []string
 }
 
+// Name implements Adapter.
 func (c Claude) Name() string { return "claude" }
 
+// Run implements Adapter.
 func (c Claude) Run(ctx context.Context, r Request) (Result, error) {
 	bin := c.Bin
 	if bin == "" {

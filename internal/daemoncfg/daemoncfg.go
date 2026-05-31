@@ -142,7 +142,7 @@ func LoadEnvFile(path string) (map[string]string, error) {
 		}
 		return nil, err
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 
 	sc := bufio.NewScanner(f)
 	lineNo := 0

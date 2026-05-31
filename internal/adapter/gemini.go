@@ -14,8 +14,10 @@ type Gemini struct {
 	Bin string
 }
 
+// Name implements Adapter.
 func (g Gemini) Name() string { return "gemini" }
 
+// Run implements Adapter.
 func (g Gemini) Run(ctx context.Context, r Request) (Result, error) {
 	bin := g.Bin
 	if bin == "" {

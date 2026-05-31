@@ -1,3 +1,4 @@
+// Package main is the routines CLI entry point.
 package main
 
 import (

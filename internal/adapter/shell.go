@@ -10,8 +10,10 @@ import (
 // with the optional prompt piped to stdin.
 type Shell struct{}
 
+// Name implements Adapter.
 func (Shell) Name() string { return "shell" }
 
+// Run implements Adapter.
 func (s Shell) Run(ctx context.Context, r Request) (Result, error) {
 	if len(r.Command) == 0 {
 		return Result{ExitCode: -1}, fmt.Errorf("shell adapter: command is required")

@@ -15,9 +15,10 @@ import (
 	"github.com/ElodinLaarz/agent-routines/internal/spec"
 )
 
-// Event kinds emitted to subscribers.
+// EventKind identifies the type of a store event emitted to subscribers.
 type EventKind int
 
+// EventAdd, EventUpdate, and EventDelete are the possible EventKind values.
 const (
 	EventAdd EventKind = iota
 	EventUpdate
@@ -131,7 +132,7 @@ func (s *FSStore) Watch(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	defer w.Close()
+	defer func() { _ = w.Close() }()
 	if err := w.Add(s.Dir); err != nil {
 		return err
 	}

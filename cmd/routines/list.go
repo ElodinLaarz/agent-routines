@@ -32,7 +32,7 @@ func newListCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			defer hist.Close()
+			defer func() { _ = hist.Close() }()
 
 			lastByName, err := hist.LastPerRoutine()
 			if err != nil {
@@ -47,7 +47,7 @@ func newListCmd() *cobra.Command {
 			sort.Slice(rs, func(i, j int) bool { return rs[i].Name < rs[j].Name })
 
 			tw := tabwriter.NewWriter(cmd.OutOrStdout(), 0, 0, 2, ' ', 0)
-			fmt.Fprintln(tw, "NAME\tAGENT\tSCHEDULE\tENABLED\tLAST\tEXIT\tNEXT")
+			_, _ = fmt.Fprintln(tw, "NAME\tAGENT\tSCHEDULE\tENABLED\tLAST\tEXIT\tNEXT")
 			for _, r := range rs {
 				next := "-"
 				if cronExpr, err := spec.ParseSchedule(r.Schedule); err == nil {
@@ -62,13 +62,13 @@ func newListCmd() *cobra.Command {
 						lastExit = fmt.Sprintf("%d", last.ExitCode.Int64)
 					}
 				}
-				fmt.Fprintf(tw, "%s\t%s\t%s\t%v\t%s\t%s\t%s\n",
+				_, _ = fmt.Fprintf(tw, "%s\t%s\t%s\t%v\t%s\t%s\t%s\n",
 					r.Name, r.Agent, r.Schedule, r.IsEnabled(), lastStatus, lastExit, next)
 			}
 			if errs := fs.LoadErrors(); len(errs) > 0 {
-				fmt.Fprintln(tw, "")
+				_, _ = fmt.Fprintln(tw, "")
 				for _, e := range errs {
-					fmt.Fprintf(tw, "BROKEN\t%s\t%v\n", e.Path, e.Err)
+					_, _ = fmt.Fprintf(tw, "BROKEN\t%s\t%v\n", e.Path, e.Err)
 				}
 			}
 			return tw.Flush()

@@ -44,10 +44,13 @@ var ErrTimeout = errors.New("adapter timeout")
 // Registry holds adapters by name.
 type Registry struct{ m map[string]Adapter }
 
+// NewRegistry returns a new empty Registry.
 func NewRegistry() *Registry { return &Registry{m: map[string]Adapter{}} }
 
+// Register adds a to the registry under its name.
 func (r *Registry) Register(a Adapter) { r.m[a.Name()] = a }
 
+// Get returns the adapter registered under name, or an error if not found.
 func (r *Registry) Get(name string) (Adapter, error) {
 	a, ok := r.m[name]
 	if !ok {

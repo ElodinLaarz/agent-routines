@@ -12,8 +12,10 @@ type Stdout struct {
 	W io.Writer
 }
 
+// Name implements Notifier.
 func (s Stdout) Name() string { return "stdout" }
 
+// Notify implements Notifier.
 func (s Stdout) Notify(_ context.Context, evt Event) error {
 	w := s.W
 	if w == nil {
