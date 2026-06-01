@@ -127,7 +127,23 @@ func Tail(path string, n int) string {
 	if path == "" || n <= 0 {
 		return ""
 	}
-	data, err := os.ReadFile(path)
+	f, err := os.Open(path)
+	if err != nil {
+		return ""
+	}
+	defer func() { _ = f.Close() }()
+
+	fi, err := f.Stat()
+	if err != nil {
+		return ""
+	}
+	const maxRead = 64 * 1024
+	if size := fi.Size(); size > maxRead {
+		if _, err := f.Seek(size-maxRead, io.SeekStart); err != nil {
+			return ""
+		}
+	}
+	data, err := io.ReadAll(f)
 	if err != nil {
 		return ""
 	}

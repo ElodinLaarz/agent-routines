@@ -97,17 +97,17 @@ func slackText(evt Event) string {
 
 	switch evt.Status {
 	case StatusFailed, StatusTimeout:
-		fmt.Fprintf(&sb, "*[%s]* %s (exit %d, %s)", evt.Routine, strings.ToUpper(evt.Status), evt.ExitCode, dur)
+		_, _ = fmt.Fprintf(&sb, "*[%s]* %s (exit %d, %s)", evt.Routine, strings.ToUpper(evt.Status), evt.ExitCode, dur)
 	default:
-		fmt.Fprintf(&sb, "*[%s]* %s (%s)", evt.Routine, evt.Status, dur)
+		_, _ = fmt.Fprintf(&sb, "*[%s]* %s (%s)", evt.Routine, evt.Status, dur)
 	}
 
 	if evt.Error != "" {
-		fmt.Fprintf(&sb, "\nError: %s", evt.Error)
+		_, _ = fmt.Fprintf(&sb, "\nError: %s", evt.Error)
 	}
 
 	if evt.LogTail != "" {
-		fmt.Fprintf(&sb, "\n```\n%s\n```", evt.LogTail)
+		_, _ = fmt.Fprintf(&sb, "\n```\n%s\n```", evt.LogTail)
 	}
 
 	return sb.String()
