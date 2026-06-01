@@ -7,6 +7,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"os"
 	"os/exec"
 	"path/filepath"
 	"runtime"
@@ -60,6 +61,13 @@ func Create(ctx context.Context, s Setup) (*Result, error) {
 	wtPath := s.Path
 	if wtPath == "" {
 		return nil, fmt.Errorf("worktree: Path is required")
+	}
+	if strings.HasPrefix(wtPath, "~/") {
+		home, err := os.UserHomeDir()
+		if err != nil {
+			return nil, fmt.Errorf("worktree: expand ~: %w", err)
+		}
+		wtPath = filepath.Join(home, wtPath[2:])
 	}
 	if !filepath.IsAbs(wtPath) {
 		wtPath = filepath.Join(top, wtPath)
