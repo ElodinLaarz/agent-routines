@@ -61,14 +61,14 @@ func (r *Routine) IsEnabled() bool {
 	return *r.Enabled
 }
 
-// Valid agent values for v1.
+// ValidAgents lists all supported agent values for v1.
 var ValidAgents = map[string]bool{
 	"gemini": true,
 	"claude": true,
 	"shell":  true,
 }
 
-// Valid on_failure values.
+// ValidOnFailure lists all supported on_failure values.
 var ValidOnFailure = map[string]bool{
 	"":       true, // default skip
 	"retry":  true,

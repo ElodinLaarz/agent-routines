@@ -419,6 +419,7 @@ func (s *Scheduler) maybeNotify(r *spec.Routine, res runResult) {
 		Finished: res.finished,
 		ExitCode: res.exit,
 		LogPath:  res.logPath,
+		LogTail:  pkglog.Tail(res.logPath, 30),
 	}
 	if res.runErr != nil {
 		evt.Error = res.runErr.Error()

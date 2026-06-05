@@ -1,4 +1,4 @@
-// Package store: persistent state. history.go is the SQLite run-history
+// Package store manages persistent state. history.go is the SQLite run-history
 // store; fsstore.go is the routine-spec watcher.
 package store
 
@@ -49,6 +49,7 @@ func OpenHistory(path string) (*History, error) {
 	return h, nil
 }
 
+// Close closes the underlying database connection.
 func (h *History) Close() error { return h.db.Close() }
 
 func (h *History) migrate() error {
@@ -125,7 +126,7 @@ func (h *History) LastN(routine string, n int) ([]Run, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 	var out []Run
 	for rows.Next() {
 		var r Run
@@ -149,7 +150,7 @@ JOIN (
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 	out := map[string]Run{}
 	for rows.Next() {
 		var r Run

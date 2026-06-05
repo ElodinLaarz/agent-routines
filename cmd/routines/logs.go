@@ -44,10 +44,10 @@ func newLogsCmd() *cobra.Command {
 			}
 			files = files[len(files)-last:]
 			for _, p := range files {
-				fmt.Fprintf(cmd.OutOrStdout(), "=== %s ===\n", p)
+				_, _ = fmt.Fprintf(cmd.OutOrStdout(), "=== %s ===\n", p)
 				f, err := os.Open(p)
 				if err != nil {
-					fmt.Fprintln(cmd.ErrOrStderr(), err)
+					_, _ = fmt.Fprintln(cmd.ErrOrStderr(), err)
 					continue
 				}
 				_, _ = io.Copy(cmd.OutOrStdout(), f)

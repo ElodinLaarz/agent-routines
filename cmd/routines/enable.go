@@ -53,7 +53,7 @@ func newEnableCmd(enable bool) *cobra.Command {
 			if err := os.WriteFile(path, out, 0o644); err != nil {
 				return err
 			}
-			fmt.Fprintf(cmd.OutOrStdout(), "%sd %s\n", verb, name)
+			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "%sd %s\n", verb, name)
 			return nil
 		},
 	}

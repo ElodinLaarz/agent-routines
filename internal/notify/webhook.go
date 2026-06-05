@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strings"
 	"time"
 )
 
@@ -25,8 +26,10 @@ type Webhook struct {
 	SlackCompat bool
 }
 
+// Name implements Notifier.
 func (w Webhook) Name() string { return "webhook" }
 
+// Notify implements Notifier.
 func (w Webhook) Notify(ctx context.Context, evt Event) error {
 	if w.URL == "" {
 		return fmt.Errorf("webhook: URL is empty")
@@ -39,10 +42,7 @@ func (w Webhook) Notify(ctx context.Context, evt Event) error {
 	var body []byte
 	var err error
 	if w.SlackCompat {
-		body, err = json.Marshal(map[string]string{
-			"text": fmt.Sprintf("routine=%s status=%s exit=%d %s",
-				evt.Routine, evt.Status, evt.ExitCode, evt.Error),
-		})
+		body, err = json.Marshal(map[string]string{"text": slackText(evt)})
 	} else {
 		body, err = json.Marshal(evt)
 	}
@@ -87,6 +87,30 @@ func (w Webhook) Notify(ctx context.Context, evt Event) error {
 		}
 	}
 	return nil
+}
+
+// slackText formats an Event into a human-readable Slack message that
+// includes the outcome, duration, any error, and a tail of the run log.
+func slackText(evt Event) string {
+	dur := evt.Finished.Sub(evt.Started).Round(time.Second)
+	var sb strings.Builder
+
+	switch evt.Status {
+	case StatusFailed, StatusTimeout:
+		_, _ = fmt.Fprintf(&sb, "*[%s]* %s (exit %d, %s)", evt.Routine, strings.ToUpper(evt.Status), evt.ExitCode, dur)
+	default:
+		_, _ = fmt.Fprintf(&sb, "*[%s]* %s (%s)", evt.Routine, evt.Status, dur)
+	}
+
+	if evt.Error != "" {
+		_, _ = fmt.Fprintf(&sb, "\nError: %s", evt.Error)
+	}
+
+	if evt.LogTail != "" {
+		_, _ = fmt.Fprintf(&sb, "\n```\n%s\n```", evt.LogTail)
+	}
+
+	return sb.String()
 }
 
 // sleepCtx blocks for d, returning ctx.Err() promptly on cancellation.

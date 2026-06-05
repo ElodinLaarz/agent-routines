@@ -1,3 +1,5 @@
+version: "2"
+
 run:
   timeout: 5m
 
@@ -10,8 +12,7 @@ linters:
     - unused
     - misspell
     - revive
-
-issues:
-  exclude-rules:
-    - path: _test\.go
-      linters: [errcheck]
+  exclusions:
+    rules:
+      - path: _test\.go
+        linters: [errcheck]

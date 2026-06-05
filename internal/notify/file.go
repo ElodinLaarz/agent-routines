@@ -15,8 +15,10 @@ type File struct {
 	mu   sync.Mutex
 }
 
+// Name implements Notifier.
 func (f *File) Name() string { return "file" }
 
+// Notify implements Notifier.
 func (f *File) Notify(_ context.Context, evt Event) error {
 	if f.Path == "" {
 		return fmt.Errorf("file notifier: path is empty")
@@ -36,7 +38,7 @@ func (f *File) Notify(_ context.Context, evt Event) error {
 	if err != nil {
 		return err
 	}
-	defer fp.Close()
+	defer func() { _ = fp.Close() }()
 	if _, err := fp.Write(append(data, '\n')); err != nil {
 		return err
 	}

@@ -39,7 +39,7 @@ restart.`,
 					if err != nil {
 						return err
 					}
-					defer hist.Close()
+					defer func() { _ = hist.Close() }()
 					sch := scheduler.New(scheduler.Config{
 						Adapters:  buildAdapters(cfg),
 						History:   hist,

@@ -38,8 +38,10 @@ type Multi struct {
 	Notifiers []Notifier
 }
 
+// Name implements Notifier.
 func (m Multi) Name() string { return "multi" }
 
+// Notify implements Notifier, fanning the event out to all child notifiers.
 func (m Multi) Notify(ctx context.Context, evt Event) error {
 	var (
 		wg    sync.WaitGroup

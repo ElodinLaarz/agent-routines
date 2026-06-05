@@ -32,11 +32,11 @@ func newAddCmd() *cobra.Command {
 				return err
 			}
 			if warn := spec.LooksLikeSecretKeys(r); len(warn) > 0 {
-				fmt.Fprintf(cmd.ErrOrStderr(),
+				_, _ = fmt.Fprintf(cmd.ErrOrStderr(),
 					"warning: env keys may contain literal secrets (use ${VAR}): %v\n", warn)
 			}
 			if dryRun {
-				fmt.Fprintf(cmd.OutOrStdout(), "ok: %s\n", r.Name)
+				_, _ = fmt.Fprintf(cmd.OutOrStdout(), "ok: %s\n", r.Name)
 				return nil
 			}
 			if err := os.MkdirAll(cfg.RoutinesDir, 0o755); err != nil {
@@ -46,7 +46,7 @@ func newAddCmd() *cobra.Command {
 			if err := copyFile(src, dest); err != nil {
 				return err
 			}
-			fmt.Fprintf(cmd.OutOrStdout(), "added %s -> %s\n", r.Name, dest)
+			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "added %s -> %s\n", r.Name, dest)
 			return nil
 		},
 	}
@@ -59,7 +59,7 @@ func copyFile(src, dst string) error {
 	if err != nil {
 		return err
 	}
-	defer in.Close()
+	defer func() { _ = in.Close() }()
 	out, err := os.OpenFile(dst, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o644)
 	if err != nil {
 		return err

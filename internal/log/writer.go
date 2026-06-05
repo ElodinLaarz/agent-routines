@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 	"sync"
 	"time"
 )
@@ -118,4 +119,38 @@ func Prune(rootDir, routine string, keepLastN int, maxAge time.Duration) ([]stri
 // FormatHeader returns a nicely-prefixed banner written at log start.
 func FormatHeader(routine string, startedAt time.Time) string {
 	return fmt.Sprintf("=== routine=%s started=%s ===\n", routine, startedAt.UTC().Format(time.RFC3339))
+}
+
+// Tail returns the last n lines of the log file at path. Returns an empty
+// string on error or if path is empty.
+func Tail(path string, n int) string {
+	if path == "" || n <= 0 {
+		return ""
+	}
+	f, err := os.Open(path)
+	if err != nil {
+		return ""
+	}
+	defer func() { _ = f.Close() }()
+
+	fi, err := f.Stat()
+	if err != nil {
+		return ""
+	}
+	const maxRead = 64 * 1024
+	if size := fi.Size(); size > maxRead {
+		if _, err := f.Seek(size-maxRead, io.SeekStart); err != nil {
+			return ""
+		}
+	}
+	data, err := io.ReadAll(f)
+	if err != nil {
+		return ""
+	}
+	trimmed := strings.TrimRight(string(data), "\n")
+	lines := strings.Split(trimmed, "\n")
+	if len(lines) > n {
+		lines = lines[len(lines)-n:]
+	}
+	return strings.Join(lines, "\n")
 }

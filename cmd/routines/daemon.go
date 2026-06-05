@@ -30,14 +30,14 @@ func newDaemonCmd() *cobra.Command {
 				return fmt.Errorf("load routines: %w", err)
 			}
 			for _, le := range fs.LoadErrors() {
-				fmt.Fprintf(cmd.ErrOrStderr(), "spec error %s: %v\n", le.Path, le.Err)
+				_, _ = fmt.Fprintf(cmd.ErrOrStderr(), "spec error %s: %v\n", le.Path, le.Err)
 			}
 
 			hist, err := store.OpenHistory(cfg.StateDB)
 			if err != nil {
 				return fmt.Errorf("open history: %w", err)
 			}
-			defer hist.Close()
+			defer func() { _ = hist.Close() }()
 
 			sch := scheduler.New(scheduler.Config{
 				Adapters:  buildAdapters(cfg),
@@ -49,12 +49,12 @@ func newDaemonCmd() *cobra.Command {
 
 			for _, r := range fs.Routines() {
 				if err := sch.AddOrReplace(r); err != nil {
-					fmt.Fprintf(cmd.ErrOrStderr(), "schedule %s: %v\n", r.Name, err)
+					_, _ = fmt.Fprintf(cmd.ErrOrStderr(), "schedule %s: %v\n", r.Name, err)
 				}
 			}
 
 			sch.Start()
-			fmt.Fprintf(cmd.OutOrStdout(), "routines daemon started: %d routine(s), watching %s\n",
+			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "routines daemon started: %d routine(s), watching %s\n",
 				len(fs.Routines()), cfg.RoutinesDir)
 
 			// Hot-reload loop
@@ -72,17 +72,17 @@ func newDaemonCmd() *cobra.Command {
 					switch evt.Kind {
 					case store.EventAdd, store.EventUpdate:
 						if evt.Routine == nil {
-							fmt.Fprintf(cmd.ErrOrStderr(), "spec error %s: %v\n", evt.Name, evt.Err)
+							_, _ = fmt.Fprintf(cmd.ErrOrStderr(), "spec error %s: %v\n", evt.Name, evt.Err)
 							continue
 						}
 						if err := sch.AddOrReplace(evt.Routine); err != nil {
-							fmt.Fprintf(cmd.ErrOrStderr(), "schedule %s: %v\n", evt.Routine.Name, err)
+							_, _ = fmt.Fprintf(cmd.ErrOrStderr(), "schedule %s: %v\n", evt.Routine.Name, err)
 						} else {
-							fmt.Fprintf(cmd.OutOrStdout(), "routine %s reloaded\n", evt.Routine.Name)
+							_, _ = fmt.Fprintf(cmd.OutOrStdout(), "routine %s reloaded\n", evt.Routine.Name)
 						}
 					case store.EventDelete:
 						sch.Remove(evt.Name)
-						fmt.Fprintf(cmd.OutOrStdout(), "routine %s removed\n", evt.Name)
+						_, _ = fmt.Fprintf(cmd.OutOrStdout(), "routine %s removed\n", evt.Name)
 					}
 				}
 			}()
@@ -92,10 +92,10 @@ func newDaemonCmd() *cobra.Command {
 
 			select {
 			case s := <-sigCh:
-				fmt.Fprintf(cmd.OutOrStdout(), "got %s, draining...\n", s)
+				_, _ = fmt.Fprintf(cmd.OutOrStdout(), "got %s, draining...\n", s)
 			case err := <-watchErr:
 				if err != nil {
-					fmt.Fprintf(cmd.ErrOrStderr(), "watch: %v\n", err)
+					_, _ = fmt.Fprintf(cmd.ErrOrStderr(), "watch: %v\n", err)
 				}
 			}
 

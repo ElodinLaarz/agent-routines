@@ -104,7 +104,7 @@ WantedBy=default.target
 			return fmt.Errorf("systemctl %v: %w", args, err)
 		}
 	}
-	fmt.Fprintf(out, "installed %s\n", dst)
+	_, _ = fmt.Fprintf(out, "installed %s\n", dst)
 	return nil
 }
 
@@ -124,7 +124,7 @@ func uninstallSystemd(out io.Writer) error {
 	_ = os.Remove(dst)
 	c := exec.Command("systemctl", "--user", "daemon-reload")
 	_ = c.Run()
-	fmt.Fprintf(out, "removed %s\n", dst)
+	_, _ = fmt.Fprintf(out, "removed %s\n", dst)
 	return nil
 }
 
@@ -179,7 +179,7 @@ func installLaunchd(out io.Writer) error {
 	if err := c.Run(); err != nil {
 		return err
 	}
-	fmt.Fprintf(out, "installed %s\n", dst)
+	_, _ = fmt.Fprintf(out, "installed %s\n", dst)
 	return nil
 }
 
@@ -191,7 +191,7 @@ func uninstallLaunchd(out io.Writer) error {
 	c := exec.Command("launchctl", "unload", "-w", dst)
 	_ = c.Run()
 	_ = os.Remove(dst)
-	fmt.Fprintf(out, "removed %s\n", dst)
+	_, _ = fmt.Fprintf(out, "removed %s\n", dst)
 	return nil
 }
 
