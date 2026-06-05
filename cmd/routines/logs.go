@@ -12,9 +12,18 @@ import (
 func newLogsCmd() *cobra.Command {
 	var last int
 	cmd := &cobra.Command{
-		Use:   "logs <name>",
-		Short: "Print the last N run log files",
-		Args:  cobra.ExactArgs(1),
+		Use:           "logs <name>",
+		Short:         "Print the last N run log files",
+		SilenceErrors: true,
+		Args: func(cmd *cobra.Command, args []string) error {
+			if len(args) == 0 {
+				return fmt.Errorf("missing routine name\n\nUsage: routines logs <name> [-n N]\n\nRun `routines list` to see available routine names.")
+			}
+			if len(args) > 1 {
+				return fmt.Errorf("expected one routine name, got %d\n\nUsage: routines logs <name> [-n N]", len(args))
+			}
+			return nil
+		},
 		RunE: func(cmd *cobra.Command, args []string) error {
 			cfg, _, err := loadCfg()
 			if err != nil {
