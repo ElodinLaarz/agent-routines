@@ -1,0 +1,18 @@
+name: CI
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  ci:
+    runs-on: golang   # golang:1.23-bookworm (has go + gcc for -race; no node)
+    steps:
+      # golang image has no node, so clone manually instead of actions/checkout.
+      - name: Checkout
+        run: git clone --depth 1 "http://x-access-token:${{ github.token }}@forgejo:3000/${{ github.repository }}.git" .
+      - run: go version
+      - run: go vet ./...
+      - run: go build ./...
+      - run: go test ./... -race -count=1
